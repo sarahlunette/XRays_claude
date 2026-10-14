@@ -1,0 +1,16 @@
+task: segmentation
+seed: 0
+output_dir: runs/seg_fracatlas
+data:
+  manifest: data/fracatlas_cache/manifest.parquet
+  dataset_version: fracatlas-v7-split-v2-dedup
+  image_size: 512
+  batch_size: 4
+  num_workers: 4
+model:
+  name: unet
+  params: {base: 32, norm: group}
+loss:
+  name: tversky              # beta > alpha: favour recall of thin fracture pixels
+  params: {alpha: 0.3, beta: 0.7}
+optim: {epochs: 40, lr: 1.0e-3, warmup_steps: 200, amp: bf16}

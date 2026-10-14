@@ -1,0 +1,18 @@
+# What the README numbers come from: a short CPU-only run (2 vCPU codespace) on the 512 px cache.
+# Treat it as a pipeline proof, not a benchmark: GPU + 768-1024 px + more epochs do much better.
+task: classification
+seed: 0
+output_dir: runs/cls_fracatlas_cpu
+data:
+  manifest: data/fracatlas_cache/manifest.parquet
+  dataset_version: fracatlas-v7-split-v2-dedup-cache512
+  image_size: 256
+  batch_size: 32
+  num_workers: 2
+model:
+  name: timm_classifier
+  params: {backbone: resnet18, pretrained: true, drop: 0.2}
+loss:
+  name: bce
+  params: {pos_weight: 2.0}
+optim: {epochs: 5, lr: 5.0e-4, warmup_steps: 50, weight_decay: 0.05, grad_clip: 1.0, ema_decay: 0.99}

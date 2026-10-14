@@ -1,0 +1,14 @@
+task: segmentation
+seed: 0
+output_dir: runs/seg_synth
+data:
+  manifest: data/synth/manifest.parquet
+  dataset_version: synthetic-n800-s128-seed0
+  image_size: 128
+  batch_size: 16
+  num_workers: 2
+model:
+  name: unet
+  params: {base: 8, norm: group}   # GroupNorm: batch-size independent (plan 1.1)
+loss: {name: bce_dice}
+optim: {epochs: 6, lr: 3.0e-3, warmup_steps: 20}

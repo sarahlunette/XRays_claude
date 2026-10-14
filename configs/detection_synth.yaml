@@ -1,0 +1,16 @@
+# Plumbing check only on CPU: detection from scratch needs GPU + pretrained weights to learn.
+task: detection
+seed: 0
+output_dir: runs/det_synth
+max_steps_per_epoch: 5
+data:
+  manifest: data/synth/manifest.parquet
+  dataset_version: synthetic-n800-s128-seed0
+  image_size: 128
+  batch_size: 4
+  num_workers: 0
+model:
+  name: fasterrcnn
+  params: {backbone: mobilenet_v3, pretrained: false}
+loss: {name: detector_builtin}
+optim: {epochs: 1, lr: 1.0e-4, warmup_steps: 2}   # 1e-3 from scratch diverges (NaN) — see docs
