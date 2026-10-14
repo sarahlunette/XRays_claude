@@ -1,0 +1,21 @@
+name: Bug report
+description: Something is broken in the code, the pipeline or the API
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: {label: What happened, description: "Command, config, error message / traceback"}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: What you expected}
+  - type: input
+    id: version
+    attributes: {label: "git SHA / model_version / thresholds_version", placeholder: "from /version or model_card.json"}
+  - type: checkboxes
+    id: phi
+    attributes:
+      label: Patient data
+      options:
+        - label: I did NOT paste any patient image, report or identifier in this issue
+          required: true

@@ -1,0 +1,21 @@
+# Inference image: ONNX Runtime only, no torch (smaller, fewer CVEs, shorter SOUP list for IEC 62304).
+# The bundle (model.onnx + thresholds.json + model_card.json) is mounted or baked at /bundle.
+FROM python:3.12-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src/ src/
+RUN pip install ".[serve]"
+RUN useradd --create-home --uid 10001 app
+USER app
+ENV XRAYML_BUNDLE=/bundle
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s CMD curl -fsS http://localhost:8000/health || exit 1
+CMD ["uvicorn", "xrayml.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Release target: the bundle is baked in, so the image digest identifies weights + thresholds.
+# `docker build --target runtime` gives the bundle-less image (mount /bundle instead).
+FROM runtime AS release
+COPY --chown=app bundle/ /bundle/

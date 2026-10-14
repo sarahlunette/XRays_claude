@@ -1,0 +1,88 @@
+# TEST stage — end-to-end behaviour, not just units:
+#   1. integration tests (CLI chain -> ONNX bundle -> API, resume determinism)
+#   2. model validation: train on synthetic fissures, choose the operating point on val,
+#      confirm on test + external site, export with parity, run the release gate,
+#      publish the validation report in the job summary
+#   3. container smoke test: build the serving image, call /health and /predict
+name: integration
+
+on:
+  pull_request:
+    paths: ["src/**", "configs/**", "tests/**", "docker/**", "pyproject.toml", "uv.lock", ".github/workflows/integration.yml"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {enable-cache: true}
+      - run: uv sync --frozen --extra train --extra serve --extra dev
+      - run: uv run pytest tests -m "integration or slow" -q
+
+  model-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {enable-cache: true}
+      - run: uv sync --frozen --extra train --extra serve --extra dev
+      - name: synthetic release path (data -> train -> ops -> bundle -> gate -> report)
+        run: make synth-demo UV=uv
+      - name: learning check (val AUC must exceed 0.9)
+        run: |
+          uv run python - <<'PY'
+          import json
+          m = json.load(open("reports/synth/metrics_val.json"))
+          print("val AUC", m["auc"]); assert m["auc"] > 0.9, m["auc"]
+          PY
+      - name: validation report -> job summary
+        if: always()
+        run: |
+          [ -f reports/synth/validation_report.md ] && cat reports/synth/validation_report.md >> "$GITHUB_STEP_SUMMARY"
+          [ -f bundle/parity.json ] && { echo '### ONNX parity'; echo '```json'; cat bundle/parity.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-bundle
+          path: |
+            bundle/
+            reports/synth/
+          retention-days: 14
+
+  container-smoke:
+    needs: model-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: candidate-bundle}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.serve
+          target: release
+          load: true
+          tags: xrayml-serve:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: run container and call the API
+        run: |
+          docker run -d --name api -p 8000:8000 xrayml-serve:ci
+          python3 scripts/smoke_test.py http://localhost:8000
+      - if: failure()
+        run: docker logs api

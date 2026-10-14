@@ -1,0 +1,13 @@
+# Training image: pinned CUDA base; dependencies from the lockfile. torchrun-ready.
+FROM nvcr.io/nvidia/pytorch:24.08-py3
+WORKDIR /workspace
+RUN pip install --no-cache-dir uv
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+# The base image ships CUDA torch; install the rest without replacing it.
+RUN uv pip install --system --no-cache ".[train,mlops]" --no-deps \
+    && uv pip install --system --no-cache timm albumentations pandas pyarrow scikit-learn scikit-image \
+       imagehash onnx onnxscript onnxruntime pydicom pydantic pyyaml mlflow "dvc[s3]"
+COPY configs/ configs/
+ENTRYPOINT ["torchrun", "--nproc_per_node=gpu", "-m", "xrayml.cli"]
+CMD ["train", "configs/detection_fracatlas.yaml"]
