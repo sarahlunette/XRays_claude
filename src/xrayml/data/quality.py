@@ -85,7 +85,9 @@ def datasheet(df: pd.DataFrame, version: str, notes: list[str] | None = None) ->
     return "\n".join(lines) + "\n"
 
 
-def regroup_near_duplicates(df: pd.DataFrame, max_distance: int = 2, hashes: dict[str, int] | None = None) -> pd.DataFrame:
+def regroup_near_duplicates(
+    df: pd.DataFrame, max_distance: int = 2, hashes: dict[str, int] | None = None
+) -> pd.DataFrame:
     """Merge groups linked by near-duplicate images (union-find), so a split cannot separate them.
 
     Use when patient IDs are missing or unreliable (FracAtlas has none): exact re-exports and

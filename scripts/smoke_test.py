@@ -1,6 +1,6 @@
 """Smoke-test a running xrayml API with the standard library only (used by CI and deploy jobs).
 
-    python scripts/smoke_test.py http://localhost:8000
+python scripts/smoke_test.py http://localhost:8000
 """
 
 from __future__ import annotations
@@ -22,11 +22,16 @@ def _png(w: int = 96, h: int = 96) -> bytes:
         return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
 
     ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
 
 
 def _get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=10) as r:  # noqa: S310 - test helper, URL from CLI
+    with urllib.request.urlopen(url, timeout=10) as r:
         return json.loads(r.read())
 
 
@@ -43,11 +48,21 @@ def main(base: str) -> int:
     version = _get(f"{base}/version")
     print("version:", version)
     boundary = uuid.uuid4().hex
-    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.png\"\r\n"
-            f"Content-Type: image/png\r\n\r\n").encode() + _png() + f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request(f"{base}/predict", data=body, method="POST",
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-Site-Id": "smoke"})
-    with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
+    body = (
+        (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="x.png"\r\n'
+            f"Content-Type: image/png\r\n\r\n"
+        ).encode()
+        + _png()
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    req = urllib.request.Request(
+        f"{base}/predict",
+        data=body,
+        method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-Site-Id": "smoke"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
         pred = json.loads(r.read())
     print("predict:", pred)
     assert 0.0 <= pred["score"] <= 1.0

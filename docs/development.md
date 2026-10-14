@@ -111,6 +111,7 @@ checks `lint (ruff)`, `typecheck (mypy)`, `unit tests (py3.12)`, `integration-te
 # src/xrayml/models/my_model.py
 from xrayml.registry import MODELS
 
+
 @MODELS.register("my_model")
 class MyModel(nn.Module): ...
 ```
