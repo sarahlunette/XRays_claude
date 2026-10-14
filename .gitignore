@@ -33,3 +33,4 @@ predictions*.jsonl
 .idea/
 .vscode/
 .DS_Store
+/bundle_fracatlas/

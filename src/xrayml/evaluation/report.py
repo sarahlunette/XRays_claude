@@ -17,7 +17,7 @@ def _fmt(v: Any) -> str:
     if v is None:
         return "—"
     if isinstance(v, float):
-        return f"{v:.3f}"
+        return str(int(v)) if v.is_integer() and abs(v) >= 1 else f"{v:.3f}"
     if isinstance(v, tuple | list) and len(v) == 2 and all(isinstance(x, float) for x in v):
         return f"[{v[0]:.3f}, {v[1]:.3f}]"
     return str(v)
