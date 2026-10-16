@@ -20,6 +20,7 @@ the module docstring first, then the code.
 | # | File | Look for | Plan |
 |---|---|---|---|
 | 7 | [`src/xrayml/engine/trainer.py`](../src/xrayml/engine/trainer.py) | The docstring lists what interviewers check. Then: accumulation + `no_sync`, `unscale_` before clipping, scheduler per optimizer step, `loss.item()`, no weight decay on norms, EMA, NaN guard, per-epoch seeding. | 5.1, 5.3, 5.7 |
+| 7b | [`src/xrayml/engine/gpu.py`](../src/xrayml/engine/gpu.py) + [`docs/gpu.md`](gpu.md) | The GPU version of the same loop: `amp: auto` (bf16 vs fp16 + scaler), TF32, cudnn.benchmark, channels_last, compile after DDP, fused AdamW, `barrier()` after rank-0 validation, effective batch across GPUs. | 5.9 |
 | 8 | [`src/xrayml/engine/checkpoint.py`](../src/xrayml/engine/checkpoint.py) | Full state + RNG + lineage; atomic save. Proven by `tests/unit/test_engine.py::test_resume_reproduces_uninterrupted_run`. | 5.4 |
 | 9 | [`src/xrayml/models/`](../src/xrayml/models/) | `layers.py` (ResNet bottleneck, MBConv, DenseNet layer, BN→GN), `detector.py` (Faster R-CNN on 1-channel images, small elongated anchors, `box_score_thresh` lowered so *the operating point* decides). | 1.1, 1.3 |
 
@@ -52,7 +53,7 @@ the module docstring first, then the code.
 
 ```bash
 make setup          # uv venv from the lockfile (CPU torch)
-make test           # lint + types + 95 tests (~40 s)
+make test           # lint + types + 111 tests (~40 s; CUDA tests skip without a GPU)
 make synth-demo     # full release path on synthetic fissures (~5 min CPU)
 cat reports/synth/validation_report.md
 make serve          # then: python scripts/smoke_test.py

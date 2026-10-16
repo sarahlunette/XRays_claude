@@ -9,5 +9,8 @@ RUN uv pip install --system --no-cache ".[train,mlops]" --no-deps \
     && uv pip install --system --no-cache timm albumentations pandas pyarrow scikit-learn scikit-image \
        imagehash onnx onnxscript onnxruntime pydicom pydantic pyyaml mlflow "dvc[s3]"
 COPY configs/ configs/
+COPY scripts/gpu_benchmark.py scripts/
+# Run with --shm-size (or --ipc=host): DataLoader workers pass batches through /dev/shm,
+# and Docker's 64 MB default crashes num_workers=8 at 768 px ("bus error").
 ENTRYPOINT ["torchrun", "--nproc_per_node=gpu", "-m", "xrayml.cli"]
 CMD ["train", "configs/detection_fracatlas.yaml"]

@@ -1,5 +1,6 @@
 # Real data. Run `make fracatlas-data` first (download -> manifest -> 1024 px cache).
-# CPU: ~3-4 min/epoch at 384 px. GPU: raise image_size to 768-1024 and amp to bf16.
+# Middle recipe (384 px, fp32), runs on CPU (~3-4 min/epoch) or any GPU.
+# Full GPU recipe: configs/classification_fracatlas_gpu.yaml (768 px, resnet50, AMP, compile).
 task: classification
 seed: 0
 output_dir: runs/cls_fracatlas

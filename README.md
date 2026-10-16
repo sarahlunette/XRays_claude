@@ -27,7 +27,7 @@ implemented, tested, and mapped to code in [`docs/interview_map.md`](docs/interv
 ```bash
 pip install uv
 make setup            # venv from uv.lock (CPU torch) + pre-commit hooks
-make test             # ruff + mypy + 95 tests (~40 s)
+make test             # ruff + mypy + 111 tests (~40 s; CUDA tests skip without a GPU)
 make synth-demo       # full release path on synthetic fissures (~5 min on CPU)
 cat reports/synth/validation_report.md
 make serve            # API on :8000, then: python scripts/smoke_test.py
@@ -38,6 +38,15 @@ Real data (FracAtlas, CC BY 4.0, 338 MB):
 ```bash
 make fracatlas-data   # download (md5) -> manifest -> 1024 px cache -> dedup regroup -> quality report
 make fracatlas-train  # GPU recommended; CPU recipe: configs/classification_fracatlas_cpu.yaml
+```
+
+GPU version (same code; on CPU every GPU knob is a no-op) — **[`docs/gpu.md`](docs/gpu.md)**:
+
+```bash
+make setup-gpu        # lockfile env + CUDA torch of the same version (CUDA=cu126 | cu130)
+make gpu-check        # GPU visible? + measured speed-up of TF32 / channels_last / AMP / fused AdamW
+make test-gpu         # CUDA-only tests: AMP dtype, compile, GPU->CPU decision parity, resume
+make fracatlas-gpu    # 768 px ResNet-50, AMP + compile, torchrun (NPROC=N) -> ops -> ONNX -> gate -> report
 ```
 
 ## The pipeline, one command per step
@@ -57,7 +66,7 @@ Each step reads files and writes files, so the same commands run from a laptop, 
 |---|---|
 | **Data** | Manifest + schema validation + fingerprint; deterministic patient-level splits; external-site hold-out; DICOM (modality/VOI LUT, MONOCHROME1, de-identification); decode-once cache; pHash band-LSH near-duplicates + union-find regrouping; datasheets |
 | **Models** | timm classifier (1-channel stem), Faster R-CNN / RetinaNet (small elongated anchors), U-Net; ResNet bottleneck, MBConv+SE, DenseNet layer, BN→GN; registry pattern |
-| **Training** | AMP (bf16 / fp16 + GradScaler), accumulation with DDP `no_sync`, clipping after `unscale_`, warmup+cosine per step, AdamW groups, EMA, NaN guard, exact resume (RNG + per-epoch seeding), torchrun-ready, optional MLflow |
+| **Training** | GPU runtime (`amp: auto`, TF32, cudnn.benchmark, channels_last, `torch.compile`, fused AdamW, throughput + peak-memory logging), AMP (bf16 / fp16 + GradScaler), accumulation with DDP `no_sync`, clipping after `unscale_`, warmup+cosine per step, AdamW groups, EMA, NaN guard, exact resume (RNG + per-epoch seeding), torchrun-ready, optional MLflow |
 | **Evaluation** | AUC/AP/ECE, patient-level bootstrap CIs, Wilson intervals, FROC + CPM, Dice, subgroup tables, temperature scaling, Grad-CAM |
 | **Release** | Operating points as a versioned artefact (per body part), release gate (acceptance criteria + paired non-inferiority vs production), ONNX export with decision-level parity, model card with lineage, generated validation report |
 | **Serving** | FastAPI on ONNX Runtime, PNG/JPEG/DICOM, body-part thresholds, refuses mismatched thresholds, JSONL prediction log |
@@ -85,6 +94,6 @@ configs/      YAML experiments (synthetic for CI, FracAtlas for real runs)
 tests/        unit/ (fast) · integration/ (CLI → bundle → API)
 pipelines/    airflow/ spark/ sql/ mongo/   (+ dvc.yaml, params.yaml at the root)
 docker/       Dockerfile.serve (runtime | release) · Dockerfile.train
-docs/         START_HERE · readme_explained · interview_map · development · deployment · data · results
-.github/      workflows (ci, integration, release) · PR template · issue forms · CODEOWNERS · dependabot
+docs/         START_HERE · readme_explained · interview_map · gpu · development · deployment · data · results
+.github/      workflows (ci, integration, release, gpu) · PR template · issue forms · CODEOWNERS · dependabot
 ```

@@ -10,7 +10,8 @@ it out loud.
 |---|---|---|
 | Backbone / neck / head, 1-channel stem from RGB weights | `models/classifier.py` (`timm ... in_chans=1`) | `test_models.py::test_classifier_outputs_logits` |
 | BatchNorm vs GroupNorm vs frozen BN | `models/layers.py::bn_to_gn`, `freeze_bn`; `unet.py` `norm="group"` | `test_models.py::test_bn_to_gn_and_freeze_bn` |
-| DDP + SyncBN | `engine/distributed.py::wrap_ddp`; trainer `no_sync()` | — (needs GPUs; `torchrun -m xrayml.cli train ...`) |
+| DDP + SyncBN | `engine/distributed.py::wrap_ddp`; trainer `no_sync()` + `barrier()`; [`docs/gpu.md`](gpu.md) | `tests/gpu/test_cuda.py` (needs GPUs; `make fracatlas-gpu NPROC=N`) |
+| GPU runtime: AMP auto, TF32, cudnn.benchmark, channels_last, compile, fused AdamW | `engine/gpu.py`; `configs/classification_fracatlas_gpu.yaml`; `scripts/gpu_benchmark.py` | `test_gpu_runtime.py` (CPU) · `tests/gpu/test_cuda.py` (CUDA) |
 | Backpropagation, gradient accumulation | `engine/trainer.py::train_one_epoch` | `test_engine.py::test_overfit_one_batch` |
 | ResNet bottleneck + projection shortcut | `models/layers.py::Bottleneck` | `test_bottleneck_projection_shortcut` |
 | Grouped / depthwise conv cost (ResNeXt) | — | `test_grouped_and_depthwise_parameter_counts` |

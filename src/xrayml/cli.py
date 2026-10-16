@@ -163,6 +163,14 @@ def cmd_train(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gpu_info(a: argparse.Namespace) -> int:
+    from xrayml.engine.gpu import device_info, resolve_device
+
+    info = device_info(resolve_device(a.device))
+    print(json.dumps(info, indent=2))
+    return 0 if info["cuda_available"] or not a.require_cuda else 1
+
+
 def cmd_evaluate(a: argparse.Namespace) -> int:
     from xrayml.evaluation.evaluate import evaluate_checkpoint
 
@@ -394,6 +402,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--resume")
     s.add_argument("--device")
     s.set_defaults(fn=cmd_train)
+
+    s = sub.add_parser("gpu-info", help="GPU / CUDA / torch stack of this machine (run first on a new box)")
+    s.add_argument("--device", default="auto")
+    s.add_argument("--require-cuda", action="store_true", help="exit 1 if no GPU is visible")
+    s.set_defaults(fn=cmd_gpu_info)
 
     s = sub.add_parser("evaluate", help="checkpoint -> predictions, metrics, CIs, subgroups")
     s.add_argument("--checkpoint", required=True)

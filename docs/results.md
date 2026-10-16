@@ -57,8 +57,15 @@ datasheet: [`reports/fracatlas_datasheet.md`](reports/fracatlas_datasheet.md).
 4. **Weak subgroups.** Oblique views (AUC 0.74, 5 positives) and "mixed" body parts (0.81)
    are where to collect data next.
 5. **Resolution matters.** 256 px is far below the native ~2,900 px; hairline fractures
-   vanish. The GPU recipe (`configs/classification_fracatlas.yaml`: 384–1024 px, 12+ epochs,
-   bf16) and detection (`configs/detection_fracatlas.yaml`) are the next runs.
+   vanish. The GPU recipe (`configs/classification_fracatlas_gpu.yaml`: 768 px, ResNet-50,
+   20 epochs, AMP, `make fracatlas-gpu`, see [`gpu.md`](gpu.md)) and detection
+   (`configs/detection_fracatlas.yaml`) are the next runs.
+
+## 3. FracAtlas, GPU — `make fracatlas-gpu`
+
+Not run yet (no GPU on the development machine). When it runs, record here: GPU type,
+`gpu_benchmark.py` table, `images_per_s` and `gpu_mem_peak_gb` from `metrics.jsonl`,
+test AUC / sensitivity with CIs, and the gate result, next to the CPU numbers above.
 
 ### Reproduce
 

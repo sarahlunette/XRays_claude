@@ -9,6 +9,11 @@ Things an interviewer checks, all present below:
 * ``loss.item()`` accumulated as a float, never the tensor (keeps the graph alive -> leak).
 * AdamW without weight decay on biases and norm parameters.
 * EMA weights evaluated and checkpointed; checkpoints include RNG states.
+
+GPU path (``runtime:`` in the config, helpers in ``engine/gpu.py``): TF32 + cudnn.benchmark set
+before the model is built, channels_last weights, fused AdamW, optional ``torch.compile`` of the
+*training* forward only, ``non_blocking`` copies from pinned memory, and per-epoch throughput +
+peak memory in ``metrics.jsonl``. On CPU every one of these is a no-op.
 """
 
 from __future__ import annotations
@@ -29,7 +34,15 @@ from xrayml.config import TrainConfig
 from xrayml.data.datasets import make_loader
 from xrayml.data.manifest import fingerprint
 from xrayml.engine.checkpoint import load_checkpoint, save_checkpoint
-from xrayml.engine.distributed import is_main
+from xrayml.engine.distributed import barrier, is_main
+from xrayml.engine.gpu import (
+    EpochMeter,
+    configure_runtime,
+    hardware_tag,
+    maybe_compile,
+    resolve_amp,
+    resolve_device,
+)
 from xrayml.engine.seed import git_sha, seed_everything
 from xrayml.evaluation.predict import predict
 from xrayml.evaluation.summary import MONITOR, task_metrics
@@ -70,8 +83,12 @@ class Trainer:
         ddp_local_rank: int | None = None,
     ) -> None:
         self.cfg = cfg
-        seed_everything(cfg.seed)
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        rt = cfg.runtime
+        seed_everything(cfg.seed, deterministic=rt.deterministic)
+        self.device = resolve_device(device)
+        configure_runtime(
+            self.device, tf32=rt.tf32, cudnn_benchmark=rt.cudnn_benchmark, deterministic=rt.deterministic
+        )
         self.out = Path(cfg.output_dir)
         self.out.mkdir(parents=True, exist_ok=True)
         distributed = ddp_local_rank is not None
@@ -82,26 +99,30 @@ class Trainer:
         self.val_loader = make_loader(val_df, cfg.data, cfg.task, train=False, seed=cfg.seed)
 
         model = build_model(cfg.model.name, **model_params(cfg)).to(self.device)
-        if cfg.data.image_size >= 256 and self.device.type == "cuda":
-            model = model.to(memory_format=torch.channels_last)  # faster convs on tensor cores
-        self.raw_model = model
+        if rt.channels_last and self.device.type == "cuda":
+            model = model.to(memory_format=torch.channels_last)  # NHWC: native layout for tensor cores
+        self.raw_model = model  # checkpoints, EMA and validation use this one
         if distributed:
             from xrayml.engine.distributed import wrap_ddp
 
             model = wrap_ddp(model, ddp_local_rank or 0)
-        self.model = model
+        # compile after DDP so DDP's bucketing sees the compiled graph (DDPOptimizer splits it)
+        self.model = maybe_compile(model, rt.compile)
         self.criterion = LOSSES.build(cfg.loss.name, **cfg.loss.params).to(self.device)
 
         o = cfg.optim
-        self.optimizer = torch.optim.AdamW(param_groups(self.raw_model, o.weight_decay), lr=o.lr)
+        fused = rt.fused_optimizer and self.device.type == "cuda"  # one kernel for the whole update
+        self.optimizer = torch.optim.AdamW(
+            param_groups(self.raw_model, o.weight_decay), lr=o.lr, fused=fused or None
+        )
         steps = cfg.max_steps_per_epoch or len(self.train_loader)
         self.total_steps = max(1, o.epochs * math.ceil(steps / o.accum_steps))
         warm = min(o.warmup_steps, self.total_steps // 5)
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             self.optimizer, lambda s: warmup_cosine(s, warm, self.total_steps)
         )
-        self.amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(o.amp)
-        use_scaler = o.amp == "fp16" and self.device.type == "cuda"
+        self.amp_dtype = resolve_amp(o.amp, self.device)
+        use_scaler = self.amp_dtype == torch.float16 and self.device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
         self.ema = (
             AveragedModel(self.raw_model, multi_avg_fn=get_ema_multi_avg_fn(o.ema_decay), use_buffers=True)
@@ -113,7 +134,10 @@ class Trainer:
             "git_sha": git_sha(),
             "dataset_version": cfg.data.dataset_version,
             "dataset_fingerprint": fingerprint(pd.concat([train_df, val_df])),
+            "hardware": hardware_tag(self.device),
+            "amp": str(self.amp_dtype).removeprefix("torch.") if self.amp_dtype else "fp32",
         }
+        self.meter: dict[str, float] = {}
 
     # ------------------------------------------------------------------ training
     def _autocast(self):
@@ -144,16 +168,14 @@ class Trainer:
             aug.set_random_seed(epoch_seed)  # num_workers=0 path; workers reseed in _seed_worker
         accum, total, n = self.cfg.optim.accum_steps, 0.0, 0
         max_steps = self.cfg.max_steps_per_epoch
+        meter = EpochMeter(self.device)
         self.optimizer.zero_grad(set_to_none=True)
         for i, (images, targets, _) in enumerate(self.train_loader):
             if max_steps is not None and i >= max_steps:
                 break
             last_micro = (i + 1) % accum == 0
-            sync = (
-                contextlib.nullcontext()
-                if last_micro or not hasattr(self.model, "no_sync")
-                else self.model.no_sync()
-            )
+            no_sync = getattr(self.model, "no_sync", None)  # DDP only (also through torch.compile)
+            sync = contextlib.nullcontext() if last_micro or no_sync is None else no_sync()
             with sync:
                 with self._autocast():
                     loss = self._loss(images, targets)
@@ -162,10 +184,12 @@ class Trainer:
                 self.scaler.scale(loss / accum).backward()
             if last_micro:
                 self._optimizer_step()
-            total += loss.item()
+            total += loss.item()  # also a sync point: one per micro-step is fine at these batch sizes
             n += 1
+            meter.add(len(images))
         if n % accum:  # flush a partial accumulation at the end of the epoch
             self._optimizer_step()
+        self.meter = meter.result()
         return total / max(n, 1)
 
     def _optimizer_step(self) -> None:
@@ -234,6 +258,7 @@ class Trainer:
                     "train_loss": train_loss,
                     "lr": self.scheduler.get_last_lr()[0],
                     "seconds": round(time.perf_counter() - t0, 1),
+                    **self.meter,  # per-rank throughput; x world_size for the job total
                     **{f"val_{k}": v for k, v in metrics.items()},
                 }
                 with log_path.open("a") as f:
@@ -245,6 +270,7 @@ class Trainer:
                     self.best = score
                     self._save("best.ckpt")
                 self._save("last.ckpt")
+            barrier()  # other ranks wait here instead of inside the next all-reduce (NCCL timeout)
             self.epoch += 1
         if tracker:
             tracker.close(self.out)

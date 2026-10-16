@@ -142,6 +142,7 @@ def make_loader(
         num_workers=cfg.num_workers,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=cfg.num_workers > 0,
+        prefetch_factor=cfg.prefetch_factor if cfg.num_workers > 0 else None,  # only valid with workers
         collate_fn=partial(collate, task=task),  # picklable (spawn start method)
         worker_init_fn=_seed_worker,
         generator=torch.Generator().manual_seed(seed),

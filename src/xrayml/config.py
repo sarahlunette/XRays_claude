@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Task = Literal["classification", "detection", "segmentation"]
 
@@ -38,6 +38,8 @@ class DataConfig(_Strict):
     batch_size: int = Field(8, ge=1)
     num_workers: int = Field(2, ge=0)
     oversample_positives: bool = False
+    # batches each worker prepares ahead; raise (4-8) when the GPU waits on decoding/augmentation
+    prefetch_factor: int | None = Field(None, ge=1)
     augment: AugmentConfig = AugmentConfig()
 
     @field_validator("manifest")
@@ -65,8 +67,20 @@ class OptimConfig(_Strict):
     warmup_steps: int = Field(100, ge=0)
     grad_clip: float | None = Field(1.0, gt=0)
     accum_steps: int = Field(1, ge=1)
-    amp: Literal["off", "bf16", "fp16"] = "off"
+    # auto: bf16 on Ampere+ GPUs, fp16 + GradScaler on older GPUs, off on CPU (engine/gpu.py)
+    amp: Literal["off", "auto", "bf16", "fp16"] = "off"
     ema_decay: float | None = Field(None, gt=0, lt=1)
+
+
+class RuntimeConfig(_Strict):
+    """GPU execution knobs (all ignored on CPU). See ``xrayml.engine.gpu`` for what each one buys."""
+
+    compile: bool = False
+    channels_last: bool = True
+    tf32: bool = True
+    cudnn_benchmark: bool = True
+    deterministic: bool = False
+    fused_optimizer: bool = True
 
 
 class TrainConfig(_Strict):
@@ -75,10 +89,20 @@ class TrainConfig(_Strict):
     model: ModelConfig
     loss: LossConfig = LossConfig()
     optim: OptimConfig = OptimConfig()
+    runtime: RuntimeConfig = RuntimeConfig()
     seed: int = 0
     output_dir: Path = Path("runs/default")
     tracking: Literal["none", "mlflow"] = "none"
     max_steps_per_epoch: int | None = Field(None, ge=1, description="cap steps (smoke tests / CI)")
+
+    @model_validator(mode="after")
+    def _no_compile_for_detection(self) -> TrainConfig:
+        if self.task == "detection" and self.runtime.compile:
+            raise ValueError(
+                "runtime.compile is not supported for detection: torchvision detectors have "
+                "data-dependent shapes (proposals per image) -> graph breaks and recompiles"
+            )
+        return self
 
 
 def _set_dotted(d: dict[str, Any], dotted: str, value: Any) -> None:

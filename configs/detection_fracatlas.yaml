@@ -7,10 +7,14 @@ data:
   dataset_version: fracatlas-v7-split-v2-dedup
   image_size: 768
   batch_size: 4
-  num_workers: 4
+  num_workers: 8
+  prefetch_factor: 4
   augment: {rotate_deg: 8, hflip_p: 0.0}
 model:
   name: fasterrcnn
   params: {backbone: resnet50, pretrained: true, trainable_backbone_layers: 3}
 loss: {name: detector_builtin}
 optim: {epochs: 24, lr: 1.0e-4, warmup_steps: 300, weight_decay: 1.0e-4, grad_clip: 5.0, amp: bf16, accum_steps: 4}
+runtime:
+  compile: false           # rejected for detection: proposals per image = data-dependent shapes
+  cudnn_benchmark: true    # backbone input is fixed (letterbox + min_size = max_size); RoI heads vary
