@@ -1,0 +1,20 @@
+# Real data. Run `make fracatlas-data` first (download -> manifest -> 1024 px cache).
+# Middle recipe (384 px, fp32), runs on CPU (~3-4 min/epoch) or any GPU.
+# Full GPU recipe: configs/classification_fracatlas_gpu.yaml (768 px, resnet50, AMP, compile).
+task: classification
+seed: 0
+output_dir: runs/cls_fracatlas
+data:
+  manifest: data/fracatlas_cache/manifest.parquet
+  dataset_version: fracatlas-v7-split-v2-dedup
+  image_size: 384
+  batch_size: 16
+  num_workers: 2
+  oversample_positives: false     # prevalence ~18%: weighted BCE instead (keeps calibration closer)
+model:
+  name: timm_classifier
+  params: {backbone: resnet18, pretrained: true, drop: 0.2}
+loss:
+  name: bce
+  params: {pos_weight: 2.0}
+optim: {epochs: 12, lr: 3.0e-4, warmup_steps: 100, weight_decay: 0.05, grad_clip: 1.0, ema_decay: 0.999, amp: "off"}

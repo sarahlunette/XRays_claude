@@ -1,0 +1,15 @@
+# CI "learning check": a small CNN must reach val AUC > 0.9 on synthetic fissures in ~3 min on CPU.
+task: classification
+seed: 0
+output_dir: runs/cls_synth
+data:
+  manifest: data/synth/manifest.parquet
+  dataset_version: synthetic-n800-s128-seed0
+  image_size: 128
+  batch_size: 16
+  num_workers: 2
+model:
+  name: timm_classifier
+  params: {backbone: resnet10t, pretrained: false}
+loss: {name: bce}
+optim: {epochs: 8, lr: 1.0e-3, warmup_steps: 20, weight_decay: 0.05, grad_clip: 1.0}

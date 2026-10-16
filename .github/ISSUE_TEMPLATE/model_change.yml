@@ -1,0 +1,29 @@
+name: Model / operating point change request
+description: Propose a new model, a retraining, or new thresholds (regulated change)
+labels: [model-change]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Change type
+      options: [New operating point only, Retraining (same architecture), New architecture, New body part / finding]
+    validations: {required: true}
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation and evidence
+      description: "Field feedback, drift alert, new data… Link monitoring dashboards or reports."
+    validations: {required: true}
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria (pre-agreed, PCCP-style)
+      value: |
+        - sensitivity lower 95% CI bound >= 0.80 at the shipped threshold (test split)
+        - non-inferior to production: Δsensitivity lower CI bound >= -0.02
+        - specificity drop <= 0.03
+        - no subgroup (body part / site) with sensitivity below …
+    validations: {required: true}
+  - type: textarea
+    id: risk
+    attributes: {label: "Risk assessment (ISO 14971)", description: "Hazards affected, risk controls, residual risk"}

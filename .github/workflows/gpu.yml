@@ -1,0 +1,75 @@
+# GPU stage — not on every PR (GitHub-hosted runners have no GPU, and GPU minutes cost money).
+# Runs on a self-hosted runner labelled `gpu` (a cloud VM with an NVIDIA card and the driver):
+#   1. gpu-tests   : CUDA-only tests (AMP, compile, GPU->CPU decision parity, resume) + benchmark
+#   2. fracatlas   : optional full release path on real data (`make fracatlas-gpu`), report in summary
+# Trigger: Actions -> gpu -> Run workflow, or `gh workflow run gpu.yml -f train=true`.
+name: gpu
+
+on:
+  workflow_dispatch:
+    inputs:
+      train:
+        description: "also run the FracAtlas GPU release path (needs data on the runner, ~1-2 h)"
+        type: boolean
+        default: false
+      cuda:
+        description: "CUDA wheel tag for torch (must match the runner's driver)"
+        type: choice
+        options: [cu126, cu130]
+        default: cu126
+
+concurrency:
+  group: gpu-${{ github.ref }}
+  cancel-in-progress: false   # never kill a half-finished training run
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-tests:
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: nvidia-smi
+      - run: make setup-gpu CUDA=${{ inputs.cuda }}
+      - run: make test-gpu
+      - name: benchmark -> job summary
+        run: |
+          uv run --no-sync python scripts/gpu_benchmark.py --json gpu_benchmark.json | tee bench.txt
+          { echo '### GPU benchmark'; echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with: {name: gpu-benchmark, path: gpu_benchmark.json}
+
+  fracatlas:
+    if: inputs.train
+    needs: gpu-tests
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: make setup-gpu CUDA=${{ inputs.cuda }}
+      - name: data (cached on the runner between runs; the md5 check skips a re-download)
+        run: |
+          [ -f data/fracatlas_cache/manifest.parquet ] || make fracatlas-data
+      - name: train on every GPU, effective batch kept at 32 (= per-GPU batch x accum x GPUs)
+        run: |
+          N=$(nvidia-smi -L | wc -l)
+          if [ "$N" -eq 1 ]; then OVR=""; else OVR="optim.accum_steps=1 data.batch_size=$((32 / N))"; fi
+          echo "GPUs=$N overrides='$OVR'"
+          make fracatlas-gpu NPROC=$N GPU_OVERRIDES="$OVR"
+      - name: validation report -> job summary
+        if: always()
+        run: |
+          [ -f reports/fracatlas_gpu/validation_report.md ] && cat reports/fracatlas_gpu/validation_report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fracatlas-gpu-bundle
+          path: |
+            bundle_fracatlas_gpu/
+            reports/fracatlas_gpu/
+            runs/cls_fracatlas_gpu/metrics.jsonl
+          retention-days: 30

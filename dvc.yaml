@@ -1,0 +1,60 @@
+# DVC pipeline = the lineage proof (revision plan 6.8). `dvc repro` reruns only stages whose
+# deps/params changed; dvc.lock records the exact hashes used. Each stage is one CLI call.
+# Setup once: `uv sync --extra mlops && dvc init && dvc remote add -d store s3://<bucket>/xrayml`
+stages:
+  download:
+    cmd: xrayml download-fracatlas --dest data/raw
+    outs:
+      - data/raw/FracAtlas:
+          persist: true
+  manifest:
+    cmd: xrayml build-manifest --root data/raw/FracAtlas --out data/fracatlas/manifest.parquet --salt ${split.salt}
+    deps: [data/raw/FracAtlas, src/xrayml/data/fracatlas.py, src/xrayml/data/manifest.py]
+    params: [split.salt]
+    outs: [data/fracatlas/manifest.parquet]
+  prepare:
+    cmd: >-
+      xrayml prepare --manifest data/fracatlas/manifest.parquet --out data/fracatlas_cache --max-side ${prepare.max_side}
+      && xrayml regroup-duplicates --manifest data/fracatlas_cache/manifest.parquet --max-hamming ${prepare.dedup_hamming} --salt ${split.salt}
+    deps: [data/fracatlas/manifest.parquet, src/xrayml/data/prepare.py, src/xrayml/data/quality.py]
+    params: [prepare.max_side, prepare.dedup_hamming, split.salt]
+    outs: [data/fracatlas_cache]
+  quality:
+    cmd: xrayml quality --manifest data/fracatlas_cache/manifest.parquet --version ${dataset.version} --dedupe --max-hamming ${prepare.dedup_hamming} --fail-on-duplicates
+    deps: [data/fracatlas_cache]
+    params: [dataset.version]
+    outs:
+      - data/fracatlas_cache/DATASHEET.md:
+          cache: false
+  train:
+    cmd: xrayml train configs/classification_fracatlas.yaml data.dataset_version=${dataset.version} output_dir=runs/dvc_cls
+    deps: [data/fracatlas_cache, configs/classification_fracatlas.yaml, src/xrayml]
+    outs: [runs/dvc_cls/best.ckpt]
+    metrics:
+      - runs/dvc_cls/metrics.jsonl:
+          cache: false
+  evaluate:
+    foreach: [val, test]
+    do:
+      cmd: xrayml evaluate --checkpoint runs/dvc_cls/best.ckpt --manifest data/fracatlas_cache/manifest.parquet --split ${item} --out reports/dvc
+      deps: [runs/dvc_cls/best.ckpt, data/fracatlas_cache]
+      outs: [reports/dvc/preds_${item}.parquet]
+      metrics:
+        - reports/dvc/metrics_${item}.json:
+            cache: false
+  operating_points:
+    cmd: xrayml select-ops --checkpoint runs/dvc_cls/best.ckpt --preds reports/dvc/preds_val.parquet --target-sensitivity ${ops.target_sensitivity} --version ${ops.version} --out bundle/thresholds.json
+    deps: [reports/dvc/preds_val.parquet]
+    params: [ops.target_sensitivity, ops.version]
+    outs: [bundle/thresholds.json]
+  export:
+    cmd: xrayml export --checkpoint runs/dvc_cls/best.ckpt --manifest data/fracatlas_cache/manifest.parquet --thresholds bundle/thresholds.json --out bundle
+    deps: [runs/dvc_cls/best.ckpt, bundle/thresholds.json]
+    outs: [bundle/model.onnx, bundle/model_card.json, bundle/parity.json]
+  gate:
+    cmd: xrayml gate --preds reports/dvc/preds_test.parquet --ops bundle/thresholds.json --min-sensitivity-lcb ${gate.min_sensitivity_lcb} --out reports/dvc/gate.json
+    deps: [reports/dvc/preds_test.parquet, bundle/thresholds.json]
+    params: [gate.min_sensitivity_lcb]
+    metrics:
+      - reports/dvc/gate.json:
+          cache: false

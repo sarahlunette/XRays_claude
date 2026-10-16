@@ -1,0 +1,39 @@
+# GPU recipe for the FracAtlas classifier — the run the CPU proof (classification_fracatlas_cpu.yaml)
+# could not afford. Sized for ONE 24 GB GPU (A10G / L4 / RTX 4090); see docs/gpu.md.
+#   single GPU : xrayml train configs/classification_fracatlas_gpu.yaml
+#   2 GPUs     : torchrun --nproc_per_node=2 -m xrayml.cli train configs/classification_fracatlas_gpu.yaml optim.accum_steps=1
+#   4 GPUs     : ... optim.accum_steps=1 data.batch_size=8
+# Effective batch = batch_size x accum_steps x n_gpus = 16 x 2 x 1 = 32. Keep it at 32 when you
+# change the GPU count (lower accum_steps, then batch_size) so lr and warmup stay valid.
+task: classification
+seed: 0
+output_dir: runs/cls_fracatlas_gpu
+data:
+  manifest: data/fracatlas_cache/manifest.parquet   # 1024 px cache from `make fracatlas-data`
+  dataset_version: fracatlas-v7-split-v2-dedup
+  image_size: 768          # 3x the CPU run: hairline fractures survive the downscale
+  batch_size: 16           # per GPU; `scripts/gpu_benchmark.py --max-batch` tells you the ceiling
+  num_workers: 8           # PNG decode + augmentation must keep up with the GPU (watch images_per_s)
+  prefetch_factor: 4
+model:
+  name: timm_classifier
+  params: {backbone: resnet50, pretrained: true, drop: 0.3}
+loss:
+  name: bce
+  params: {pos_weight: 2.0}
+optim:
+  epochs: 20
+  lr: 3.0e-4
+  warmup_steps: 100        # optimizer steps (~1 epoch at 97 steps/epoch)
+  weight_decay: 0.05
+  grad_clip: 1.0
+  accum_steps: 2
+  amp: auto                # bf16 on Ampere+ (A10G, L4, A100, H100), fp16 + GradScaler on T4 / V100
+  ema_decay: 0.998         # horizon ~500 steps of ~1,940
+runtime:
+  compile: true            # ~1-2 min of compilation on the first steps, then faster at fixed 768 px
+  channels_last: true
+  tf32: true
+  cudnn_benchmark: true    # fixed input shape (letterboxed squares) -> autotuning pays off
+  deterministic: false     # set true for the final validation run (slower, bit-exact rerun)
+tracking: none             # mlflow: needs `--extra mlops` and MLFLOW_TRACKING_URI

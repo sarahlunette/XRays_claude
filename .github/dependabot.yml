@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      ml-stack: {patterns: ["torch*", "timm", "albumentations", "onnx*"]}
+      dev-tools: {patterns: ["ruff", "mypy", "pytest*", "hypothesis"]}
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: monthly}
+  - package-ecosystem: docker
+    directory: /docker
+    schedule: {interval: monthly}

@@ -1,0 +1,7 @@
+# Reviewers are auto-requested by path. Changes to what the model sees or decides need the
+# owners of the release process to approve.
+*                                   @sarahlunette
+/src/xrayml/data/preprocess.py      @sarahlunette
+/src/xrayml/operating_points.py     @sarahlunette
+/src/xrayml/evaluation/             @sarahlunette
+/.github/workflows/                 @sarahlunette

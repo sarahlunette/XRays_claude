@@ -1,0 +1,112 @@
+# DEPLOY stage — a model + operating-point release is a regulated change:
+#   build (rebuild the bundle from the tagged commit, gate must pass)
+#   -> staging (image pushed to GHCR, deployed, smoke-tested)
+#   -> production (manual approval on the `production` environment, GitHub Release with the
+#      bundle, model card and validation report attached = the release record)
+# Trigger: push a tag `v*` (e.g. v0.2.0) or run manually.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      promote_to_production:
+        description: "also run the production job (needs approval)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}-serve
+
+jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      model_version: ${{ steps.meta.outputs.model_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {enable-cache: true}
+      - run: uv sync --frozen --extra train --extra serve --extra dev
+      # In production the candidate comes from the model registry (alias "candidate");
+      # here it is rebuilt deterministically from the tagged commit + dataset version.
+      - run: make synth-demo UV=uv
+      - id: meta
+        run: echo "model_version=$(jq -r .model_version bundle/model_card.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            bundle/
+            reports/synth/
+          retention-days: 90
+
+  deploy-staging:
+    needs: build-bundle
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ steps.out.outputs.url }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: release-bundle}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
+      - id: tags
+        run: |
+          repo=$(echo "${IMAGE}" | tr '[:upper:]' '[:lower:]')
+          echo "image=${repo}" >> "$GITHUB_OUTPUT"
+          echo "ref=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.serve
+          target: release
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.ref }}
+            ${{ steps.tags.outputs.image }}:${{ needs.build-bundle.outputs.model_version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            ai.xrayml.model-version=${{ needs.build-bundle.outputs.model_version }}
+      - name: deploy to staging (placeholder) + smoke test
+        run: |
+          # Real deployment would be e.g. `helm upgrade --install xrayml ./chart --set image.tag=...`
+          # or an ArgoCD/Flux commit. Here the "staging environment" is the runner itself.
+          docker run -d --name api -p 8000:8000 "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.ref }}"
+          python3 scripts/smoke_test.py http://localhost:8000
+      - id: out
+        run: echo "url=https://github.com/${{ github.repository }}/pkgs/container/$(basename ${{ steps.tags.outputs.image }})" >> "$GITHUB_OUTPUT"
+
+  deploy-production:
+    needs: [build-bundle, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.promote_to_production
+    runs-on: ubuntu-latest
+    environment: production   # configure "Required reviewers" on this environment
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: release-bundle}
+      - name: release record (GitHub Release with bundle + validation report)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in v*) ;; *) tag="manual-${GITHUB_RUN_NUMBER}";; esac
+          tar czf "bundle-${{ needs.build-bundle.outputs.model_version }}.tgz" bundle
+          gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "Model ${{ needs.build-bundle.outputs.model_version }} ($tag)" \
+            --notes-file reports/synth/validation_report.md \
+            "bundle-${{ needs.build-bundle.outputs.model_version }}.tgz" \
+            bundle/model_card.json bundle/thresholds.json reports/synth/gate.json

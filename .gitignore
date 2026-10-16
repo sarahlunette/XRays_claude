@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# Data, runs and artefacts: versioned with DVC / the model registry, never with git.
+# (Patient images must never end up in git history.)
+/data/
+/runs/
+/bundle/
+/reports/
+/mlruns/
+*.ckpt
+*.onnx
+*.parquet
+*.dcm
+predictions*.jsonl
+
+# DVC
+/.dvc/cache
+/.dvc/tmp
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+/bundle_fracatlas/
