@@ -14,6 +14,8 @@ implemented, tested, and mapped to code in [`docs/interview_map.md`](docs/interv
 ## 👉 Where to look first
 
 1. **[`docs/START_HERE.md`](docs/START_HERE.md)** — a 2-hour reading path through 17 files, in order.
+   New to a term in this README? **[`docs/readme_explained.md`](docs/readme_explained.md)** explains
+   every one, section by section, with worked numbers from `scripts/readme_terms_demo.py`.
 2. [`src/xrayml/engine/trainer.py`](src/xrayml/engine/trainer.py) — the training loop you should be able to explain line by line.
 3. [`src/xrayml/operating_points.py`](src/xrayml/operating_points.py) + [`src/xrayml/evaluation/release_gate.py`](src/xrayml/evaluation/release_gate.py) — from scores to a shipped, gated decision.
 4. [`src/xrayml/serving/app.py`](src/xrayml/serving/app.py) — what production looks like (no torch, versioned responses, prediction log).
@@ -25,7 +27,7 @@ implemented, tested, and mapped to code in [`docs/interview_map.md`](docs/interv
 ```bash
 pip install uv
 make setup            # venv from uv.lock (CPU torch) + pre-commit hooks
-make test             # ruff + mypy + 94 tests (~40 s)
+make test             # ruff + mypy + 95 tests (~40 s)
 make synth-demo       # full release path on synthetic fissures (~5 min on CPU)
 cat reports/synth/validation_report.md
 make serve            # API on :8000, then: python scripts/smoke_test.py
@@ -83,6 +85,6 @@ configs/      YAML experiments (synthetic for CI, FracAtlas for real runs)
 tests/        unit/ (fast) · integration/ (CLI → bundle → API)
 pipelines/    airflow/ spark/ sql/ mongo/   (+ dvc.yaml, params.yaml at the root)
 docker/       Dockerfile.serve (runtime | release) · Dockerfile.train
-docs/         START_HERE · interview_map · development · deployment · data · results
+docs/         START_HERE · readme_explained · interview_map · development · deployment · data · results
 .github/      workflows (ci, integration, release) · PR template · issue forms · CODEOWNERS · dependabot
 ```

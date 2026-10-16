@@ -52,7 +52,7 @@ the module docstring first, then the code.
 
 ```bash
 make setup          # uv venv from the lockfile (CPU torch)
-make test           # lint + types + 94 tests (~40 s)
+make test           # lint + types + 95 tests (~40 s)
 make synth-demo     # full release path on synthetic fissures (~5 min CPU)
 cat reports/synth/validation_report.md
 make serve          # then: python scripts/smoke_test.py
